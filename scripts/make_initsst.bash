@@ -1,0 +1,220 @@
+#!/bin/bash 
+umask 022
+
+
+if [ $# -ne 4 ]
+then
+   echo ""
+   echo "Instructions: execute the command below"
+   echo ""
+   echo "${0} EXP_NAME RESOLUTION LABELI FCST"
+   echo ""
+   echo "EXP_NAME    :: Forcing: GFS"
+   echo "            :: Others options to be added later..."
+   echo "RESOLUTION  :: number of points in resolution model grid, e.g: 1024002  (24 km)"
+   echo "LABELI      :: Initial date YYYYMMDDHH, e.g.: 2024010100"
+   echo "FCST        :: Forecast hours, e.g.: 24 or 36, etc."
+   echo ""
+   echo "24 hour forcast example:"
+   echo "${0} GFS 1024002 2024010100 24"
+   echo ""
+
+   exit
+fi
+
+# Set environment variables exports:
+echo ""
+echo -e "\033[1;32m==>\033[0m Moduling environment for MONAN model...\n"
+. setenv.bash
+
+echo ""
+echo "---- Make Init Atmosphere ----"
+echo ""
+
+# Standart directories variables:---------------------------------------
+DIRHOMES=${DIR_SCRIPTS}/scripts_CD-CT; mkdir -p ${DIRHOMES}  
+DIRHOMED=${DIR_DADOS}/scripts_CD-CT;   mkdir -p ${DIRHOMED}  
+SCRIPTS=${DIRHOMES}/scripts;           mkdir -p ${SCRIPTS}
+DATAIN=${DIRHOMED}/datain;             mkdir -p ${DATAIN}
+DATAOUT=${DIRHOMED}/dataout;           mkdir -p ${DATAOUT}
+SOURCES=${DIRHOMES}/sources;           mkdir -p ${SOURCES}
+EXECS=${DIRHOMED}/execs;               mkdir -p ${EXECS}
+#----------------------------------------------------------------------
+
+
+# Input variables:--------------------------------------
+EXP=${1};         #EXP=GFS
+RES=${2};         #RES=1024002
+YYYYMMDDHHi=${3}; #YYYYMMDDHHi=2024012000
+FCST=${4};        #FCST=24
+#-------------------------------------------------------
+
+
+# Local variables--------------------------------------
+start_date=${YYYYMMDDHHi:0:4}-${YYYYMMDDHHi:4:2}-${YYYYMMDDHHi:6:2}_${YYYYMMDDHHi:8:2}:00:00
+GEODATA=${DATAIN}/WPS_GEOG
+cores=${INITATMOS_ncores}
+export DIRRUN=${DIRHOMED}/run.${YYYYMMDDHHi}; rm -fr ${DIRRUN}; mkdir -p ${DIRRUN}
+#-------------------------------------------------------
+mkdir -p ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs
+
+
+
+
+if [ ! -s ${DATAIN}/fixed/x1.${RES}.graph.info.part.${cores} ]
+then
+   if [ ! -s ${DATAIN}/fixed/x1.${RES}.graph.info ]
+   then
+      cd ${DATAIN}/fixed
+      echo -e "${GREEN}==>${NC} downloading meshes tgz files ... \n"
+      cd ${DATAIN}/fixed
+      wget https://www2.mmm.ucar.edu/projects/mpas/atmosphere_meshes/x1.${RES}.tar.gz
+      wget https://www2.mmm.ucar.edu/projects/mpas/atmosphere_meshes/x1.${RES}_static.tar.gz
+      tar -xzvf x1.${RES}.tar.gz
+      tar -xzvf x1.${RES}_static.tar.gz
+   fi
+   echo -e "${GREEN}==>${NC} Creating x1.${RES}.graph.info.part.${cores} ... \n"
+   cd ${DATAIN}/fixed
+   gpmetis -minconn -contig -niter=200 x1.${RES}.graph.info ${cores}
+   rm -fr x1.${RES}.tar.gz x1.${RES}_static.tar.gz
+fi
+
+
+SST_START=${YYYYMMDDHHi:0:8}                                                        
+SST_DIR="/p/projetos/monan_adm/monan/CIs/sst"
+for ((d=0; d<=FCST/24; d++)); do                                                
+    SST_DATE=$(date -u -d "${SST_START} +${d} days" +%Y%m%d)00                          
+    SST_FILE="${SST_DIR}/SST:${SST_DATE:0:4}-${SST_DATE:4:2}-${SST_DATE:6:2}_00"
+    if [ ! -s "${SST_FILE}" ]; then
+        echo -e  "\n${RED}==>${NC} ***** ATTENTION *****\n"
+        echo -e  "${RED}==>${NC} [${0}] File $file is outside the requested forecast interval. \n"
+        exit -1
+    else
+        cp "$SST_FILE" ${DIRRUN}
+    fi
+done   
+
+
+files_needed=("${SCRIPTS}/namelists/namelist.init_atmosphere.TEMPLATE" "${SCRIPTS}/namelists/streams.init_atmosphere.TEMPLATE" "${DATAIN}/fixed/x1.${RES}.graph.info.part.${cores}" "${DATAIN}/fixed/x1.${RES}.static.nc" "${DATAIN}/fixed/x1.${RES}.ugwp_oro_data.nc" "${DATAOUT}/${YYYYMMDDHHi}/Pre/${EXP}:${start_date:0:13}" "${EXECS}/init_atmosphere_model")
+for file in "${files_needed[@]}"
+do
+  if [ ! -s "${file}" ]
+  then
+    echo -e  "\n${RED}==>${NC} ***** ATTENTION *****\n"	  
+    echo -e  "${RED}==>${NC} [${0}] At least the file ${file} was not generated. \n"
+    exit -1
+  fi
+done
+
+
+sed -e "s,#LABELI#,${start_date},g;s,#GEODAT#,${GEODATA},g;s,#RES#,${RES},g;s,config_init_case = .*,config_init_case = 8," \
+	 ${SCRIPTS}/namelists/namelist.init_atmosphere.TEMPLATE > ${DIRRUN}/namelist.init_atmosphere
+
+sed -e "s,#RES#,${RES},g" \
+    ${SCRIPTS}/namelists/streams.init_atmosphere.TEMPLATE > ${DIRRUN}/streams.init_atmosphere
+
+
+cp -f ${DATAIN}/fixed/x1.${RES}.graph.info.part.${cores} ${DIRRUN}
+cp -f ${DATAIN}/fixed/x1.${RES}.static.nc ${DIRRUN}
+cp -f ${DATAIN}/fixed/QNWFA_QNIFA_SIGMA_MONTHLY.dat ${DIRRUN}
+cp -f ${DATAOUT}/${YYYYMMDDHHi}/Pre/${EXP}\:${start_date:0:13} ${DIRRUN}
+cp -f ${EXECS}/init_atmosphere_model ${DIRRUN}
+cp -f ${SCRIPTS}/setenv.bash ${DIRRUN}
+
+chmod 755 ${DIRRUN}/*
+chmod 755 ${DATAOUT}/${YYYYMMDDHHi}/Pre/*
+
+rm -f ${DIRRUN}/initsst.bash 
+
+
+if [ ${SCHEDULER_SYSTEM} != "GENERIC" ]
+then
+   sed -e "s,#JOBNAME#,${INITATMOS_jobname},g;
+   s,#NNODES#,${INITATMOS_nnodes},g;
+   s,#NCPUS#,${INITATMOS_ncpus},g;
+   s,#NTASKS#,${INITATMOS_ncores},g;
+   s,#NTASKSPNODE#,${INITATMOS_ncpn},g;
+   s,#NTHREADS#,${INITATMOS_nthreads},g;
+   s,#PARTITION#,${INITATMOS_QUEUE},g;
+   s,#WALLTIME#,${INITATMOS_walltime},g;
+   s,#OUTPUTJOB#,${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.o,g;
+   s,#ERRORJOB#,${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.e,g" \
+   ${SCRIPTS}/stools/submit_${SYSTEM_KEY}.bash_TEMPLATE > ${DIRRUN}/initsst.bash 
+else
+   echo "#!/bin/bash " > ${DIRRUN}/initsst.bash 
+fi
+
+cat << EOF0 >> ${DIRRUN}/initsst.bash 
+
+export executable=init_atmosphere_model
+
+ulimit -c unlimited
+ulimit -v unlimited
+ulimit -s unlimited
+
+
+cd ${DIRRUN}
+. ${SCRIPTS}/setenv.bash
+
+
+date
+beg_secs=\`date +"%s"\`
+
+if [ "$HOSTNAME" = "egeon" ]; then
+   echo "-- SLURM_JOB_ID: \$SLURM_JOB_ID"
+   time mpirun -np ${INITATMOS_ncores} ./\${executable}
+else
+   echo "-- PBS_JOBID: \$PBS_JOBID"
+   time mpirun --ppn ${INITATMOS_ncpn} -np ${INITATMOS_ncores} --depth=${INITATMOS_nthreads} --cpu-bind depth ./\${executable}
+fi
+
+date
+end_secs=\`date +"%s"\`
+
+let wallsecs=\$end_secs-\$beg_secs
+echo "INITATMOS time taken by run in seconds is " \$wallsecs
+
+
+mv ${DIRRUN}/log.init_atmosphere.0000.out ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/log.init_atmosphere-sst.0000.x1.${RES}.init.nc.${YYYYMMDDHHi}.out
+mv ${DIRRUN}/namelist.init_atmosphere ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/namelist.init_atmosphere-sst
+mv ${DIRRUN}/streams.init_atmosphere ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/streams.init_atmosphere-sst
+mv ${DIRRUN}/x1.${RES}.sfc_update.nc ${DATAOUT}/${YYYYMMDDHHi}/Pre
+
+EOF0
+chmod a+x ${DIRRUN}/initsst.bash
+
+case "${SCHEDULER_SYSTEM}" in
+   SLURM)
+      echo -e  "${GREEN}==>${NC} Sbatch initsst.bash...\n"
+      cd ${DIRRUN}
+      sbatch --wait ${DIRRUN}/initsst.bash
+      ;;
+    PBS)
+      echo -e  "${GREEN}==>${NC} qsub initsst.bash...\n"
+      cd ${DIRRUN}
+      qsub -W block=true ${DIRRUN}/initsst.bash
+      ;;
+#    GENERIC)
+#      echo "Nenhum gerenciador detectado"
+#      cd ${DIRRUN}
+#      ${DIRRUN}/initsst.bash
+#      ;;
+esac
+mv ${DIRRUN}/initsst.bash ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs
+
+JOBID=$(sed -n '5p' ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.o | awk '{print $3}' | sed "s/.pbs-ha//g")
+mv ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.o ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.o.${JOBID}
+mv ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.e ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.e.${JOBID}
+chmod a+r ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.o.${JOBID}
+chmod a+r ${DATAOUT}/${YYYYMMDDHHi}/Pre/logs/initsst.bash.e.${JOBID}
+
+
+if [ ! -s ${DATAOUT}/${YYYYMMDDHHi}/Pre/x1.${RES}.init.nc ]
+then
+  echo -e  "\n${RED}==>${NC} ***** ATTENTION *****\n"	
+  echo -e  "${RED}==>${NC} Init Atmosphere phase fails! Check logs at ${DATAOUT}/logs/initsst.* .\n"
+  echo -e  "${RED}==>${NC} Exiting script. \n"
+  exit -1
+fi
+chmod 775 ${DATAOUT}/${YYYYMMDDHHi}/Pre/*
+rm -fr ${DIRRUN}

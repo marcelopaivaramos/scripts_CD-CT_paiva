@@ -190,6 +190,7 @@ cp -f ${DATAOUT}/${YYYYMMDDHHi}/Pre/x1.${RES}.init.nc ${DIRRUN}
 cp -f ${DATAIN}/fixed/Vtable.${EXP} ${DIRRUN}
 cp -f ${DATAIN}/fixed/ugwp_limb_tau.nc ${DIRRUN}
 
+
 if [[ $MODERUN == "R" ]]; then
    cp -f ${DATAOUT}/${YYYYMMDDHHi}/Pre/lbc*.nc ${DIRRUN}
 fi
@@ -207,6 +208,23 @@ cp -f ${SCRIPTS}/namelists/stream_list.atmosphere.diagnostics${VARTABLE} ${DIRRU
 cp -f ${SCRIPTS}/namelists/stream_list.atmosphere.diag_ugwp${VARTABLE} ${DIRRUN}/stream_list.atmosphere.diag_ugwp
 cp -f ${SCRIPTS}/namelists/stream_list.atmosphere.surface ${DIRRUN}
 cp -f ${SCRIPTS}/setenv.bash ${DIRRUN}
+
+
+if [ "$USE_SST_BCS" = true ]; then
+    files_needed=("${DATAOUT}/${YYYYMMDDHHi}/Pre/x1.${RES}.sfc_update.nc")
+    for file in "${files_needed[@]}"
+    do
+        if [ ! -s "${file}" ]
+        then
+            echo -e  "\n${RED}==>${NC} ***** ATTENTION *****\n"
+            echo -e  "${RED}==>${NC} [${0}] At least the file ${file} was not generated. \n"
+            exit -1
+        fi
+    done
+    cp -f ${DATAOUT}/${YYYYMMDDHHi}/Pre/x1.${RES}.sfc_update.nc ${DIRRUN}
+    sed -i "s,config_sst_update = .*,config_sst_update = true," ${DIRRUN}/namelist.atmosphere
+    sed -i "37s,none,86400," ${DIRRUN}/streams.atmosphere
+fi
 
 
 chmod 755 ${DIRRUN}

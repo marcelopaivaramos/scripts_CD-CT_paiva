@@ -217,6 +217,20 @@ else
 fi
 #----------------------------------------------------------------------------------
 
+# Init SST phase:------------------------------------------------------------
+if [[ ${EXP} == "GFS" || ${EXP} == "ERA" ]]; then
+    if [ "$USE_SST_BCS" = true ]; then
+        echo -e  "${GREEN}==>${NC} Running Init SST for real case...\n"
+        time ./make_initsst.bash ${EXP} ${RES} ${YYYYMMDDHHi} ${FCST}
+    fi
+else                                                                            
+   echo -e  "\n${RED}==>${NC} ***** ATTENTION *****\n"                          
+   echo -e  "${RED}==>${NC} Init Atmosphere phase fails! Please select EXP=GFS or EXP=ERA.\n"
+   echo -e  "${RED}==>${NC} Exiting script. \n"                                 
+   exit -1                                                                      
+fi
+#----------------------------------------------------------------------------------
+
 # LBCs phase:------------------------------------------------------------
 if [[ $MODERUN == "R" ]]; then
    time ./make_lbcs.bash ${EXP} ${RES} ${YYYYMMDDHHi} ${FCST}

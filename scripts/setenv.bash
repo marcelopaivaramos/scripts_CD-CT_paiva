@@ -11,6 +11,9 @@ export COMPILER=intel
 #export COMPILER=cray
 #export COMPILER=nvidia
 
+# Use Sea Surface Temperature (SST) boundary conditions (BCS)                   
+export USE_SST_BCS=true
+
 # Squeduler detect:
 if command -v sbatch &> /dev/null
 then
